@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Sensitive Credentials & Auth Tokens (NEVER COMMIT!)
+storage.json
+*.session
+*.key
+.env
+.env.*
+
+# Claude Desktop Extensions & Builds
+*.mcpb
+dist/
+build/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log

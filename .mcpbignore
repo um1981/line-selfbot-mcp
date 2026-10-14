@@ -1,0 +1,9 @@
+storage.json
+run.js
+test-*.js
+bot.js
+.git/
+.gitignore
+.npmrc
+README.md
+docs/
