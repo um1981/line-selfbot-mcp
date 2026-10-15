@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1040 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="line-selfbot-arch-title line-selfbot-arch-desc" id="line-selfbot-architecture-root">
+        <title id="line-selfbot-arch-title">สถาปัตยกรรมระบบ LINE SelfBot MCP Server (v2.0.0)</title>
+        <desc id="line-selfbot-arch-desc">แผนผังสถาปัตยกรรมแสดงการเชื่อมต่อระหว่าง Claude Desktop, MCP Server, evex linejs และโครงสร้างพื้นฐาน LINE Cloud พร้อมการสื่อสารแบบ E2EE และระบบ Push Real-time</desc>
+        
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Sarabun:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #line-selfbot-architecture-root { --color-paper:   #FFFFFF;
+      --color-ink:     #2D3142;
+      --color-muted:   #4F5D75;
+      --color-accent:  #EB6C36;
+      --font-sans:     'Segoe UI Variable', 'Leelawadee UI', 'Tahoma', system-ui, sans-serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #line-selfbot-architecture-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #line-selfbot-architecture-root .diagram-container { width: 100%; overflow-x: auto; }
+      #line-selfbot-architecture-root .diagram-container { overflow-x: visible; }</style>
+          <marker id="line-selfbot-architecture-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4F5D75"/>
+          </marker>
+          <marker id="line-selfbot-architecture-arrow-start" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+            <polygon points="8 0, 0 3, 8 6" fill="#4F5D75"/>
+          </marker>
+          <marker id="line-selfbot-architecture-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#EB6C36"/>
+          </marker>
+          <marker id="line-selfbot-architecture-arrow-start-accent" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+            <polygon points="8 0, 0 3, 8 6" fill="#EB6C36"/>
+          </marker>
+          <marker id="line-selfbot-architecture-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2E5AA8"/>
+          </marker>
+          <marker id="line-selfbot-architecture-arrow-start-link" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+            <polygon points="8 0, 0 3, 8 6" fill="#2E5AA8"/>
+          </marker>
+        </defs>
+
+        <!-- Background Canvas -->
+        <rect width="100%" height="100%" fill="#FFFFFF"/>
+
+        <!-- ========================================== -->
+        <!-- ZONES (Group Containers)                   -->
+        <!-- ========================================== -->
+
+        <!-- Zone 1: User & Desktop (Left: x=40, w=230, right edge=270) -->
+        <rect x="40" y="44" width="230" height="460" rx="8" fill="#F7F9FC" stroke="#CBD2DD" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="52" y="36" width="160" height="16" rx="2" fill="#FFFFFF"/>
+        <text x="60" y="48" fill="#687389" font-size="8" font-weight="600" font-family="'Segoe UI Variable', sans-serif" letter-spacing="0.12em">CLAUDE &amp; WORKSTATION</text>
+
+        <!-- Zone 2: Node.js Runtime Engine (Center: x=330, w=380) -->
+        <rect x="330" y="44" width="380" height="460" rx="8" fill="#F7F9FC" stroke="#CBD2DD" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="342" y="36" width="176" height="16" rx="2" fill="#FFFFFF"/>
+        <text x="350" y="48" fill="#687389" font-size="8" font-weight="600" font-family="'Segoe UI Variable', sans-serif" letter-spacing="0.12em">NODE.JS MCP RUNTIME (v22+)</text>
+
+        <!-- Zone 3: LINE Cloud Platform (Right: x=750, w=250) -->
+        <rect x="750" y="44" width="250" height="460" rx="8" fill="#F7F9FC" stroke="#CBD2DD" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="762" y="36" width="154" height="16" rx="2" fill="#FFFFFF"/>
+        <text x="770" y="48" fill="#687389" font-size="8" font-weight="600" font-family="'Segoe UI Variable', sans-serif" letter-spacing="0.12em">LINE CLOUD PLATFORM</text>
+
+        <!-- ========================================== -->
+        <!-- CONNECTORS & ARROWS (Drawn before nodes)   -->
+        <!-- ========================================== -->
+
+        <!-- 1. Claude Desktop <==> mcp-server.js -->
+        <line x1="240" y1="134" x2="360" y2="134" stroke="#EB6C36" stroke-width="1.6" fill="none" marker-start="url(#line-selfbot-architecture-arrow-start-accent)" marker-end="url(#line-selfbot-architecture-arrow-accent)"/>
+
+        <!-- 2. mcp-server.js <==> @evex/linejs -->
+        <line x1="520" y1="184" x2="520" y2="242" stroke="#2E5AA8" stroke-width="1.4" fill="none" marker-start="url(#line-selfbot-architecture-arrow-start-link)" marker-end="url(#line-selfbot-architecture-arrow-link)"/>
+
+        <!-- 3. @evex/linejs <==> storage.json -->
+        <line x1="520" y1="322" x2="520" y2="382" stroke="#2A8C86" stroke-width="1.4" fill="none" marker-start="url(#line-selfbot-architecture-arrow-start)" marker-end="url(#line-selfbot-architecture-arrow)"/>
+
+        <!-- 4. run.js ==> storage.json (Right then Down, turns at x=310) -->
+        <path d="M 240,278 H 302 Q 310,278 310,286 V 412 Q 310,420 318,420 H 360" stroke="#4F5D75" stroke-width="1.2" stroke-dasharray="4,3" fill="none" marker-end="url(#line-selfbot-architecture-arrow)"/>
+
+        <!-- 5. mcp-server.js ==> downloads/ (Left then Down, turns at x=290) -->
+        <path d="M 360,154 H 298 Q 290,154 290,162 V 412 Q 290,420 282,420 H 240" stroke="#4F5D75" stroke-width="1.2" stroke-dasharray="4,3" fill="none" marker-end="url(#line-selfbot-architecture-arrow)"/>
+
+        <!-- 6. @evex/linejs <==> LINE Server (Talk RPC / Push, turns at x=725) -->
+        <path d="M 680,270 H 717 Q 725,270 725,262 V 142 Q 725,134 733,134 H 770" stroke="#2E5AA8" stroke-width="1.4" fill="none" marker-start="url(#line-selfbot-architecture-arrow-start-link)" marker-end="url(#line-selfbot-architecture-arrow-link)"/>
+
+        <!-- 7. @evex/linejs <==> LINE OBS (E2EE Media) -->
+        <line x1="680" y1="288" x2="770" y2="288" stroke="#2A8C86" stroke-width="1.4" fill="none" marker-start="url(#line-selfbot-architecture-arrow-start)" marker-end="url(#line-selfbot-architecture-arrow)"/>
+
+        <!-- 8. LINE Mobile App ==> LINE Server (Verification via Cloud, runs outside at x=985) -->
+        <path d="M 970,420 H 977 Q 985,420 985,412 V 142 Q 985,134 977,134 H 970" stroke="#4F5D75" stroke-width="1.2" stroke-dasharray="4,3" fill="none" marker-end="url(#line-selfbot-architecture-arrow)"/>
+
+        <!-- ========================================== -->
+        <!-- ARROW LABELS & MASKS                       -->
+        <!-- ========================================== -->
+
+        <!-- Label 1: STDIO JSON-RPC -->
+        <rect x="255" y="124" width="90" height="18" rx="2" fill="#FFFFFF"/>
+        <text x="300" y="137" fill="#EB6C36" font-size="8.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">STDIO JSON-RPC</text>
+
+        <!-- Label 2: RPC & EVENTS -->
+        <rect x="476" y="204" width="88" height="18" rx="2" fill="#F7F9FC"/>
+        <text x="520" y="217" fill="#2E5AA8" font-size="8.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">RPC &amp; EVENTS</text>
+
+        <!-- Label 3: AUTH & E2EE KEYS -->
+        <rect x="472" y="343" width="96" height="18" rx="2" fill="#F7F9FC"/>
+        <text x="520" y="356" fill="#2A8C86" font-size="8.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">AUTH &amp; E2EE KEYS</text>
+
+        <!-- Label 4: บันทึก Token -->
+        <rect x="274" y="340" width="72" height="20" rx="2" fill="#FFFFFF"/>
+        <text x="310" y="354" fill="#4F5D75" font-size="12" font-weight="500" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">บันทึก Token</text>
+
+        <!-- Label 5: เซฟไฟล์ -->
+        <rect x="258" y="220" width="64" height="20" rx="2" fill="#FFFFFF"/>
+        <text x="290" y="234" fill="#4F5D75" font-size="12" font-weight="500" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">เซฟไฟล์</text>
+
+        <!-- Label 6: THRIFT / PUSH -->
+        <rect x="679" y="196" width="92" height="18" rx="2" fill="#FFFFFF"/>
+        <text x="725" y="209" fill="#2E5AA8" font-size="8.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">THRIFT / PUSH</text>
+
+        <!-- Label 7: E2EE MEDIA -->
+        <rect x="687" y="279" width="76" height="18" rx="2" fill="#FFFFFF"/>
+        <text x="725" y="292" fill="#2A8C86" font-size="8.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">E2EE MEDIA</text>
+
+        <!-- Label 8: ยืนยัน PIN (placed in gap at y=348 between OBS bottom 322 and Mobile top 382) -->
+        <rect x="948" y="344" width="74" height="20" rx="2" fill="#F7F9FC"/>
+        <text x="985" y="358" fill="#4F5D75" font-size="12" font-weight="500" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">ยืนยัน PIN</text>
+
+        <!-- ========================================== -->
+        <!-- NODES (Mask + Box + Tag + Text)            -->
+        <!-- ========================================== -->
+
+        <!-- Node 1: Claude Desktop (x:60, y:96, w:180, h:76) -->
+        <rect x="60" y="96" width="180" height="76" rx="6" fill="#F3F0FA" stroke="#6B5BA8" stroke-width="1.2"/>
+        <rect x="68" y="104" width="46" height="14" rx="2" fill="#FFFFFF" stroke="#6B5BA8" stroke-width="0.8"/>
+        <text x="91" y="114" fill="#5A4B96" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+        <text x="150" y="138" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">Claude Desktop</text>
+        <text x="150" y="157" fill="#4F5D75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">AI Host · stdio</text>
+
+        <!-- Node 2: run.js (x:60, y:240, w:180, h:76) -->
+        <rect x="60" y="240" width="180" height="76" rx="6" fill="#FFFFFF" stroke="#8D96A8" stroke-width="1" stroke-dasharray="4,3"/>
+        <rect x="68" y="248" width="46" height="14" rx="2" fill="#FFFFFF" stroke="#8D96A8" stroke-width="0.8"/>
+        <text x="91" y="258" fill="#687389" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">SCRIPT</text>
+        <text x="150" y="282" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">run.js (Login)</text>
+        <text x="150" y="302" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">สแกน QR / ขอรับ Token</text>
+
+        <!-- Node 3: downloads/ (x:60, y:382, w:180, h:76) -->
+        <rect x="60" y="382" width="180" height="76" rx="6" fill="#F3F5F9" stroke="#4F5D75" stroke-width="1"/>
+        <rect x="68" y="390" width="56" height="14" rx="2" fill="#FFFFFF" stroke="#4F5D75" stroke-width="0.8"/>
+        <text x="96" y="400" fill="#4F5D75" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">STORAGE</text>
+        <text x="150" y="424" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">downloads/</text>
+        <text x="150" y="444" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">ไฟล์และสื่อที่บันทึก</text>
+
+        <!-- Node 4: mcp-server.js (Focal Node) (x:360, y:90, w:320, h:94) -->
+        <rect x="360" y="90" width="320" height="94" rx="6" fill="#FFF8F5" stroke="#EB6C36" stroke-width="1.8"/>
+        <rect x="368" y="98" width="60" height="15" rx="2" fill="#EB6C36"/>
+        <text x="398" y="109" fill="#FFFFFF" font-size="8" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">MCP CORE</text>
+        <text x="520" y="132" fill="#2D3142" font-size="14" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">mcp-server.js (v2.0.0)</text>
+        <text x="520" y="152" fill="#C4501C" font-size="12" font-weight="600" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">14 เครื่องมือ (โปรไฟล์, แชท, ไฟล์, Push Real-time)</text>
+        <text x="520" y="170" fill="#687389" font-size="9.5" font-family="'Geist Mono', monospace" text-anchor="middle">inbox buffer (500 msgs) · resolveNames()</text>
+
+        <!-- Node 5: @evex/linejs (x:360, y:242, w:320, h:80) -->
+        <rect x="360" y="242" width="320" height="80" rx="6" fill="#EAF1FB" stroke="#2E5AA8" stroke-width="1.2"/>
+        <rect x="368" y="250" width="52" height="14" rx="2" fill="#FFFFFF" stroke="#2E5AA8" stroke-width="0.8"/>
+        <text x="394" y="260" fill="#24508F" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+        <text x="520" y="282" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">@evex/linejs (Client Engine)</text>
+        <text x="520" y="303" fill="#4F5D75" font-size="9.5" font-family="'Geist Mono', monospace" text-anchor="middle">Apache Thrift RPC · E2EE · Long-polling</text>
+
+        <!-- Node 6: storage.json (x:360, y:382, w:320, h:76) -->
+        <rect x="360" y="382" width="320" height="76" rx="6" fill="#EAF6F5" stroke="#2A8C86" stroke-width="1.2"/>
+        <rect x="368" y="390" width="52" height="14" rx="2" fill="#FFFFFF" stroke="#2A8C86" stroke-width="0.8"/>
+        <text x="394" y="400" fill="#1F736E" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">SECRET</text>
+        <text x="520" y="422" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">storage.json</text>
+        <text x="520" y="442" fill="#4F5D75" font-size="9.5" font-family="'Geist Mono', monospace" text-anchor="middle">AuthToken · Certificate · E2EE Private Keys</text>
+
+        <!-- Node 7: LINE Server (Talk RPC) (x:770, y:96, w:200, h:76) -->
+        <rect x="770" y="96" width="200" height="76" rx="6" fill="#FFFFFF" stroke="#8D96A8" stroke-width="1" stroke-dasharray="4,3"/>
+        <rect x="778" y="104" width="60" height="14" rx="2" fill="#FFFFFF" stroke="#8D96A8" stroke-width="0.8"/>
+        <text x="808" y="114" fill="#687389" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">GATEWAY</text>
+        <text x="870" y="136" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">LINE Server (Talk)</text>
+        <text x="870" y="155" fill="#4F5D75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">legy.line-apps.com</text>
+
+        <!-- Node 8: LINE OBS (Media) (x:770, y:246, w:200, h:76) -->
+        <rect x="770" y="246" width="200" height="76" rx="6" fill="#FFFFFF" stroke="#8D96A8" stroke-width="1" stroke-dasharray="4,3"/>
+        <rect x="778" y="254" width="46" height="14" rx="2" fill="#FFFFFF" stroke="#8D96A8" stroke-width="0.8"/>
+        <text x="801" y="264" fill="#687389" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">MEDIA</text>
+        <text x="870" y="286" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">LINE OBS Server</text>
+        <text x="870" y="305" fill="#4F5D75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">obs.line-apps.com (E2EE)</text>
+
+        <!-- Node 9: LINE Mobile App (x:770, y:382, w:200, h:76) -->
+        <rect x="770" y="382" width="200" height="76" rx="6" fill="#F3F0FA" stroke="#6B5BA8" stroke-width="1.2"/>
+        <rect x="778" y="390" width="48" height="14" rx="2" fill="#FFFFFF" stroke="#6B5BA8" stroke-width="0.8"/>
+        <text x="802" y="400" fill="#5A4B96" font-size="7.5" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle" letter-spacing="0.08em">DEVICE</text>
+        <text x="870" y="422" fill="#2D3142" font-size="13" font-weight="600" font-family="'Segoe UI Variable', sans-serif" text-anchor="middle">LINE Mobile App</text>
+        <text x="870" y="442" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif" text-anchor="middle">สแกน QR และยืนยัน PIN</text>
+
+        <!-- ========================================== -->
+        <!-- BOTTOM LEGEND STRIP                        -->
+        <!-- ========================================== -->
+        <line x1="40" y1="524" x2="1000" y2="524" stroke="#E3E7EE" stroke-width="1"/>
+
+        <text x="40" y="556" fill="#4F5D75" font-size="12" font-weight="600" font-family="'Leelawadee UI', sans-serif">สัญลักษณ์</text>
+
+        <!-- Legend Swatch 1: Focal Core -->
+        <rect x="120" y="544" width="24" height="14" rx="2" fill="#FFF8F5" stroke="#EB6C36" stroke-width="1.5"/>
+        <text x="150" y="556" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">จุดประสานงานหลัก (MCP Core)</text>
+
+        <!-- Legend Swatch 2: Engine -->
+        <rect x="330" y="544" width="24" height="14" rx="2" fill="#EAF1FB" stroke="#2E5AA8" stroke-width="1"/>
+        <text x="360" y="556" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">เครื่องมือจำลอง (Engine / Lib)</text>
+
+        <!-- Legend Swatch 3: Storage -->
+        <rect x="540" y="544" width="24" height="14" rx="2" fill="#EAF6F5" stroke="#2A8C86" stroke-width="1"/>
+        <text x="570" y="556" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">กุญแจความปลอดภัย (Secret Key)</text>
+
+        <!-- Legend Swatch 4: Cloud -->
+        <rect x="760" y="544" width="24" height="14" rx="2" fill="#FFFFFF" stroke="#8D96A8" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="790" y="556" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">บริการคลาวด์ภายนอก</text>
+
+        <!-- Legend Connectors Row 2 -->
+        <line x1="120" y1="578" x2="144" y2="578" stroke="#EB6C36" stroke-width="1.6" marker-end="url(#line-selfbot-architecture-arrow-accent)"/>
+        <text x="152" y="582" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">ช่องทางสื่อสารหลัก (stdio)</text>
+
+        <line x1="330" y1="578" x2="354" y2="578" stroke="#2E5AA8" stroke-width="1.4" marker-end="url(#line-selfbot-architecture-arrow-link)"/>
+        <text x="362" y="582" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">HTTPS / Thrift RPC / Push</text>
+
+        <line x1="540" y1="578" x2="564" y2="578" stroke="#2A8C86" stroke-width="1.4" marker-end="url(#line-selfbot-architecture-arrow)"/>
+        <text x="572" y="582" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">การถ่ายโอนสื่อและคีย์ E2EE</text>
+
+        <line x1="760" y1="578" x2="784" y2="578" stroke="#4F5D75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#line-selfbot-architecture-arrow)"/>
+        <text x="792" y="582" fill="#4F5D75" font-size="12" font-family="'Leelawadee UI', sans-serif">กระบวนการเตรียมพร้อม (Setup / IO)</text>
+
+      </svg>

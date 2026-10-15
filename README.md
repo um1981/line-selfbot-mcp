@@ -13,6 +13,15 @@
 
 ## 🏛️ สถาปัตยกรรมระบบ (Architecture)
 
+<p align="center">
+  <img src="assets/line-selfbot-architecture.png" alt="สถาปัตยกรรมระบบ LINE SelfBot MCP Server (v2.0.0)" width="100%">
+</p>
+
+> 💡 **ไฟล์แผนภาพต้นฉบับ:** ดูเวอร์ชัน Interactive HTML ได้ที่ [`assets/line-selfbot-architecture.html`](assets/line-selfbot-architecture.html) หรือดาวน์โหลดไฟล์แก้ไขใน draw.io ได้ที่ [`assets/line-selfbot-architecture.drawio`](assets/line-selfbot-architecture.drawio)
+
+<details>
+<summary>แสดงโครงสร้าง Mermaid (Text Fallback)</summary>
+
 ```mermaid
 flowchart TD
     Claude["Claude Desktop<br/>(AI Agent)"] <-->|"MCP over stdio<br/>(JSON-RPC)"| MCP["mcp-server.js v2.0.0<br/>(@modelcontextprotocol/sdk)"]
@@ -31,6 +40,9 @@ flowchart TD
         InboxBuffer -.->|"wait_for_message<br/>get_new_messages"| MCP
     end
 ```
+
+</details>
+
 
 | องค์ประกอบ | หน้าที่ |
 |---|---|
