@@ -1,43 +1,59 @@
 # line-selfbot-mcp
 
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](package.json)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-green.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-SDK-blue.svg)](https://github.com/modelcontextprotocol)
+[![Tools](https://img.shields.io/badge/Tools-14%20Tools-orange.svg)](#-รายการ-tools-ที่เปิดให้-claude-ใช้งาน-14-tools)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**LINE SelfBot MCP Server สำหรับ Claude Desktop**  
-ควบคุมและเชื่อมต่อบัญชี LINE ส่วนตัวเข้ากับ AI Agent โดยตรงผ่านไลบรารี [`@evex/linejs`](https://github.com/evex-dev/linejs) รองรับการอ่านและส่งข้อความ แชทเดี่ยว (1-on-1) แชทกลุ่ม และดึง/ส่งรูปภาพแบบเข้ารหัส End-to-End Encryption (E2EE) โดยไม่ต้องเปิดหน้าต่างโปรแกรม LINE Desktop
+**LINE SelfBot MCP Server สำหรับ Claude Desktop (v2.0.0 - 14 Tools)**  
+ควบคุมและเชื่อมต่อบัญชี LINE ส่วนตัวเข้ากับ AI Agent โดยตรงผ่านไลบรารี [`@evex/linejs`](https://github.com/evex-dev/linejs) รองรับการอ่านและส่งข้อความ รูปภาพ ไฟล์แนบ การจัดการโปรไฟล์/เพื่อน/กลุ่ม และรับข้อความแบบ Real-time push โดยไม่ต้องเปิดหน้าต่างโปรแกรม LINE Desktop
 
 ---
 
 ## 🏛️ สถาปัตยกรรมระบบ (Architecture)
 
 ```mermaid
-flowchart LR
-    A["Claude Desktop<br/>(AI Agent)"] -->|"MCP over stdio<br/>(JSON-RPC)"| B["mcp-server.js<br/>(@modelcontextprotocol/sdk)"]
-    B -->|"Thrift RPC / E2EE"| C["@evex/linejs<br/>(LINE Client Simulation)"]
-    C -->|"HTTPS / WebSocket"| D["LINE Server<br/>(legy.line-apps.com)"]
-    E["run.js<br/>(Login Script)"] -.->|"สร้าง / บันทึก Token"| F["storage.json<br/>(Local Secret Key)"]
-    F -.->|"โหลด Token อัตโนมัติ"| B
+flowchart TD
+    Claude["Claude Desktop<br/>(AI Agent)"] <-->|"MCP over stdio<br/>(JSON-RPC)"| MCP["mcp-server.js v2.0.0<br/>(@modelcontextprotocol/sdk)"]
+    MCP <-->|"Thrift RPC / E2EE / HTTPS"| LineJS["@evex/linejs<br/>(LINE Client Engine)"]
+    LineJS <-->|"legy.line-apps.com<br/>obs.line-apps.com"| LineServer["LINE Server"]
+    
+    subgraph Storage & Local Files
+        LoginScript["run.js (Login)"] -.->|"บันทึก AuthToken"| Storage["storage.json<br/>(Secret Key - E2EE)"]
+        Storage -.->|"โหลด Token อัตโนมัติ"| MCP
+        MCP -.->|"บันทึกไฟล์ดาวน์โหลด"| Downloads["downloads/<br/>(Files / Images / Videos)"]
+    end
+
+    subgraph Real-Time Engine
+        LineServer -.->|"Push Event (Long-polling)"| LineJS
+        LineJS -.->|"c.on('message')"| InboxBuffer["inbox Buffer<br/>(Max 500 msgs)"]
+        InboxBuffer -.->|"wait_for_message<br/>get_new_messages"| MCP
+    end
 ```
 
 | องค์ประกอบ | หน้าที่ |
 |---|---|
-| `@evex/linejs` | ไลบรารีจำลอง Client ของ LINE เชื่อมต่อเซิร์ฟเวอร์ LINE โดยตรง รองรับ E2EE |
+| `@evex/linejs` | ไลบรารีจำลอง Client ของ LINE เชื่อมต่อเซิร์ฟเวอร์ LINE โดยตรง รองรับ E2EE และ Long-polling |
 | `run.js` | สคริปต์สแกน QR Code ครั้งแรกเพื่อรับ AuthToken และเก็บลง `storage.json` |
-| `mcp-server.js` | MCP Server ให้บริการ Tools ผ่าน Stdio แก่ Claude Desktop |
+| `mcp-server.js` | MCP Server ให้บริการ 14 Tools ผ่าน Stdio แก่ Claude Desktop |
 | `storage.json` | เก็บ AuthToken, RefreshToken, Certificate และ Private Key **(ห้ามแชร์เด็ดขาด)** |
+| `downloads/` | โฟลเดอร์ปลายทางสำหรับจัดเก็บไฟล์ที่ดาวน์โหลดจาก LINE |
 | `manifest.json` | การตั้งค่าสำหรับแพ็กเกจเป็น Desktop Extension (`.mcpb`) |
 
 ---
 
 ## ✨ ความสามารถหลัก (Features)
 
-- 💬 **อ่านและสรุปแชท**: ดึงรายการห้องแชทล่าสุด (`list_chats`) ทั้งแชทส่วนตัวและกลุ่ม พร้อมนับข้อความที่ยังไม่อ่าน
-- 📜 **ดูประวัติบทสนทนา**: ดึงข้อความย้อนหลัง (`get_chat_messages`) ระบุผู้ส่งและเวลาชัดเจน
-- 🖼️ **รองรับรูปภาพ (Vision)**: ดึงรูปภาพจากแชท (`get_message_image`) แปลงเป็น Base64 Image Block ให้ Claude วิเคราะห์และตอบคำถามเกี่ยวกับรูปได้โดยตรง
-- ✉️ **ส่งข้อความ**: ส่งข้อความตอบกลับหรือแจ้งเตือนเข้าแชท (`send_message`)
-- 📤 **ส่งรูปภาพ E2EE**: ส่งไฟล์รูปภาพจากเครื่องหรือรูปภาพจาก URL ไปยังแชทบุคคล/กลุ่ม (`send_image`)
-- ⚡ **Headless & ไม่แย่งเมาส์**: ทำงานเบื้องหลัง ไม่ต้องเปิดโปรแกรม LINE Desktop และไม่รบกวนหน้าจอผู้ใช้
+- 💬 **อ่านและสรุปแชท**: ดึงรายการห้องแชทล่าสุด (`list_chats`) ทั้งแชทส่วนตัวและกลุ่ม พร้อมชื่อคู่สนทนาและจำนวนที่ยังไม่อ่าน
+- 📜 **ดูประวัติบทสนทนา**: ดึงข้อความย้อนหลัง (`get_chat_messages`) ระบุชื่อผู้ส่ง (`fromName`) เวลา และประเภทเนื้อหา
+- 🖼️ **รองรับรูปภาพ (Vision)**: ดึงรูปภาพจากแชท (`get_message_image`) แปลงเป็น Base64 Image Block ให้ Claude วิเคราะห์ได้ทันที
+- 📥 **ดาวน์โหลดไฟล์แนบ**: ดาวน์โหลดไฟล์ เอกสาร รูป วิดีโอ หรือเสียง (`download_message_file`) ลงเครื่องในโฟลเดอร์ `downloads/`
+- ✉️ **ส่งข้อความ & รูปภาพ**: ส่งข้อความ (`send_message`) และรูปภาพ E2EE (`send_image`) ทั้งจากไฟล์ในเครื่องหรือ URL
+- 📎 **ส่งไฟล์ทุกประเภท**: ส่ง PDF, Word, Excel, ZIP, วิดีโอ (MP4) และเสียง (`send_file`) แบบ E2EE อัตโนมัติตาม MIME
+- 👥 **จัดการรายชื่อ & กลุ่ม**: ค้นหาเพื่อน (`list_friends`), ดูสมาชิกกลุ่มและผู้สร้างกลุ่ม (`list_group_members`), ตั้งชื่อเล่นเพื่อนในเครื่อง (`rename_friend`)
+- 👤 **จัดการโปรไฟล์**: ดูโปรไฟล์ (`get_my_profile`) และเปลี่ยนชื่อหรือข้อความสถานะตนเอง (`update_my_profile`)
+- ⚡ **Real-time Push Notification**: รอรับข้อความใหม่แบบสด ๆ (`wait_for_message`) หรือดึงข้อความจาก inbox buffer (`get_new_messages`)
 
 ---
 
@@ -104,23 +120,55 @@ npm run login
 
 ---
 
-## 🛠️ รายการ Tools ที่เปิดให้ Claude ใช้งาน
+## 🛠️ รายการ Tools ที่เปิดให้ Claude ใช้งาน (14 Tools)
 
-| Tool Name | Parameters | คำอธิบาย |
+### 👤 โปรไฟล์ (Profile)
+| Tool | Parameters | คำอธิบาย |
 |---|---|---|
-| `list_chats` | `limit` *(number, ค่าเริ่มต้น 30)* | ดึงรายชื่อแชทล่าสุดทั้งหมด (ทั้ง 1-on-1 และห้องกลุ่ม) เรียงตามเวลาสนทนาล่าสุด |
-| `get_chat_messages` | `chatMid` *(string)*, `limit` *(number, ค่าเริ่มต้น 20)* | อ่านประวัติข้อความล่าสุดในแชท หากพบรูปภาพจะแสดง messageId กำกับ |
-| `get_message_image` | `chatMid` *(string)*, `messageId` *(string)* | ดึงไบนารีรูปภาพจากข้อความ ส่งกลับให้ Claude วิเคราะห์ด้วยสายตา AI |
-| `send_message` | `chatMid` *(string)*, `message` *(string)* | ส่งข้อความตัวอักษรไปยังผู้รับหรือห้องแชท |
-| `send_image` | `chatMid` *(string)*, `filePath` *(string)* หรือ `imageUrl` *(string)* | ส่งรูปภาพ (ไฟล์ในเครื่อง หรือ URL) เข้ารหัสแบบ E2EE ส่งไปยังแชท |
+| `get_my_profile` | – | ดูโปรไฟล์บัญชี LINE ตัวเอง (ชื่อ, MID, ข้อความสถานะ, LINE ID) |
+| `update_my_profile` | `displayName` (≤20), `statusMessage` (≤500) | เปลี่ยนชื่อที่แสดง และ/หรือ ข้อความสถานะของตนเอง |
+| `rename_friend` | `userMid`, `newName` | ตั้งชื่อเพื่อนในเครื่องเรา (`""` เพื่อคืนชื่อเดิม) |
 
-### 💡 ตัวอย่างคำสั่งที่สามารถสั่ง Claude
+### 👥 รายชื่อและกลุ่ม (Contacts & Groups)
+| Tool | Parameters | คำอธิบาย |
+|---|---|---|
+| `list_chats` | `limit` *(ค่าเริ่มต้น 30)* | ดึงรายชื่อแชทล่าสุดทั้งหมด (1-on-1 และกลุ่ม) เรียงตามเวลาสนทนา |
+| `list_friends` | `search` *(ไม่บังคับ)* | ดึงรายชื่อเพื่อนทั้งหมดในสมุดรายชื่อ พร้อม MID และสถานะ |
+| `list_group_members` | `chatMid` (`c...`) | ดึงรายชื่อสมาชิกทั้งหมดในกลุ่ม พร้อมผู้สร้างกลุ่ม (`isCreator`) และผู้ที่รอตอบรับคำเชิญ |
 
-- *"ช่วยดูรายชื่อแชท LINE ล่าสุดหน่อยว่ามีข้อความใหม่อะไรบ้าง"*
-- *"อ่านข้อความล่าสุด 10 ข้อความในกลุ่ม 'Dev Team' แล้วสรุปประเด็นสำคัญให้หน่อย"*
+### 📖 อ่านและดาวน์โหลด (Read & Download)
+| Tool | Parameters | คำอธิบาย |
+|---|---|---|
+| `get_chat_messages` | `chatMid`, `limit` *(ค่าเริ่มต้น 20)* | อ่านประวัติข้อความล่าสุด พร้อมชื่อผู้ส่ง (`fromName`), เวลา และ ID กำกับไฟล์/รูปภาพ |
+| `get_message_image` | `chatMid`, `messageId` | ดึงรูปภาพจากข้อความ ส่งกลับให้ Claude วิเคราะห์ด้วยสายตา AI |
+| `download_message_file` | `chatMid`, `messageId`, `saveDir` *(ไม่บังคับ)* | ดาวน์โหลดไฟล์แนบ (PDF, Word, Excel, Video, Audio) บันทึกลงเครื่อง (ค่าเริ่มต้น `downloads/`) |
+
+### 📤 ส่งข้อความและไฟล์ (Send)
+| Tool | Parameters | คำอธิบาย |
+|---|---|---|
+| `send_message` | `chatMid`, `message` | ส่งข้อความตัวอักษรไปยังผู้รับหรือห้องแชท |
+| `send_image` | `chatMid`, `filePath` หรือ `imageUrl` | ส่งรูปภาพ (JPEG, PNG, GIF, WebP) แบบเข้ารหัส E2EE |
+| `send_file` | `chatMid`, `filePath` หรือ `fileUrl`, `fileName` *(ไม่บังคับ)* | ส่งไฟล์เอกสาร (PDF, DOCX, XLSX), วิดีโอ (MP4), เสียง (MP3) แบบ E2EE |
+
+### ⚡ Real-Time Push & Inbox
+| Tool | Parameters | คำอธิบาย |
+|---|---|---|
+| `wait_for_message` | `chatMid` *(ไม่บังคับ)*, `timeoutSec` *(สูงสุด 50)* | รอรับข้อความใหม่แบบสด ๆ (สูงสุด 50 วินาที) คืนข้อความทันทีเมื่อมีคนส่งมา |
+| `get_new_messages` | `chatMid` *(ไม่บังคับ)*, `clear` *(ค่าเริ่มต้น true)* | ดึงข้อความใหม่ที่ค้างอยู่ใน inbox buffer ตั้งแต่เริ่มฟัง |
+
+---
+
+## 💡 ตัวอย่างคำสั่งที่สามารถสั่ง Claude
+
+- *"ดูรายชื่อแชท LINE ล่าสุดหน่อยว่ามีข้อความใหม่อะไรบ้าง"*
+- *"ค้นหาเพื่อน LINE ที่ชื่อมีคำว่า 'สมชาย'"*
+- *"ใครอยู่ในกลุ่ม 'BPC Project Team' บ้าง และใครเป็นคนสร้างกลุ่ม"*
+- *"อ่าน 10 ข้อความล่าสุดในกลุ่ม แล้วสรุปประเด็นสำคัญ"*
 - *"ในแชทนี้มีรูปภาพส่งมา ช่วยดึงรูปมาดูแล้วอธิบายว่าคืออะไร"*
-- *"ส่งสรุปการประชุมนี้เข้าแชทกลุ่ม MID: c1234567890..."*
-- *"ส่งรูปกราฟิกสรุป `C:\reports\daily.png` เข้ากลุ่ม LINE หน่อย"*
+- *"ดาวน์โหลดไฟล์ PDF ล่าสุดในห้องแชท แล้วอ่านสรุปเนื้อหาให้ฟังหน่อย"*
+- *"ส่งไฟล์ `C:\reports\monthly.xlsx` ไปหาคุณวิชัย"*
+- *"ส่งข้อความถาม 'สรุปเข้าประชุมกี่โมงครับ' ไปหาคุณวิชัย แล้วรอคำตอบ สรุปให้ด้วย"*
+- *"เปลี่ยนข้อความสถานะ LINE ของฉันเป็น 'ติดประชุมด่วน สะดวกตอบช่วงเย็น'"*
 
 ---
 
@@ -145,12 +193,30 @@ npx @anthropic-ai/mcpb pack
    การใช้ SelfBot ขัดต่อเงื่อนไขการให้บริการของ LINE และมีความเสี่ยงที่บัญชีอาจถูกระงับ (Ban) หากส่งข้อความถี่หรือมีพฤติกรรมผิดปกติ **แนะนำให้ใช้บัญชีสำรองสำหรับการพัฒนา/ทดสอบ**
 3. **การส่งข้อความอัตโนมัติ:**  
    Claude จะส่งข้อความในนามของบัญชีจริงของคุณทันทีที่เรียกใช้ `send_message` หากต้องการความรัดกุม สามารถเพิ่มคำสั่งใน System Prompt ของคุณให้ Claude ขอยืนยันข้อความก่อนส่งเสมอ
+4. **ไฟล์ที่ดาวน์โหลด:**  
+   ไฟล์ที่ดาวน์โหลดผ่าน `download_message_file` จะถูกบันทึกในเครื่องโดยตรง ควรระมัดระวังในการเปิดไฟล์แนบจากแหล่งที่ไม่น่าไว้วางใจ
+
+---
+
+## 📜 ประวัติการพัฒนา (Version History)
+
+| เวอร์ชัน | รายละเอียดการเปลี่ยนแปลง |
+|---|---|
+| **v1.0 – v1.2** | รองรับ `list_chats`, `send_message`, `get_chat_messages` (เฉพาะกลุ่ม) |
+| **v1.3** | รองรับแชทส่วนตัว 1-on-1 ผ่าน `getMessageBoxes` และ `getRecentMessagesV2` |
+| **v1.4** | รองรับ `get_message_image` ให้ Claude มองเห็นรูปภาพผ่าน Base64 Image Block |
+| **v1.5** | รองรับ `send_image` ส่งรูปภาพแบบ E2EE |
+| **v1.6** | รองรับ `list_friends` ค้นหารายชื่อเพื่อน |
+| **v1.7** | รองรับ `list_group_members`, ดึงชื่อผู้ส่ง (`fromName`) ใน `get_chat_messages`, ระบบ `resolveNames()` |
+| **v1.8** | ระบบ Real-time push notification: `wait_for_message`, `get_new_messages` |
+| **v1.9** | รองรับ `send_file`, `download_message_file`, ตัวแปลง `MIME_MAP` และ `loadMedia()` |
+| **v2.0.0** | เพิ่ม `get_my_profile`, `update_my_profile`, `rename_friend` (ครบ 14 Tools สมบูรณ์แบบ) |
 
 ---
 
 ## 📚 เอกสารเพิ่มเติม
 
-- [คู่มือขั้นตอนและเบื้องหลังเชิงลึก (SOLUTION_GUIDE.md)](docs/SOLUTION_GUIDE.md)
+- [คู่มือขั้นตอนและเบื้องหลังเชิงลึกฉบับเต็ม (SOLUTION_GUIDE.md)](docs/SOLUTION_GUIDE.md)
 - [LINEJS Documentation](https://linejs.evex.land)
 - [Model Context Protocol (MCP) SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 

@@ -1,6 +1,8 @@
 # LINE SelfBot MCP Plugin สำหรับ Claude Desktop
 
-คู่มือรวบรวมแนวทางการสร้าง MCP Server ที่ควบคุมบัญชี LINE ส่วนตัวผ่านไลบรารี `@evex/linejs` (LINE SelfBot) และติดตั้งเป็น Plugin ให้ Claude Desktop ใช้งานอ่าน/ส่งข้อความ LINE ได้โดยตรง โดยไม่ต้องควบคุม UI ของโปรแกรม LINE Desktop
+คู่มือรวบรวมแนวทางการสร้าง MCP Server ที่ควบคุมบัญชี LINE ส่วนตัวผ่านไลบรารี `@evex/linejs` (LINE SelfBot) และติดตั้งเป็น Plugin ให้ Claude Desktop ใช้งานอ่าน/ส่งข้อความ รูปภาพ ไฟล์ และรับข้อความแบบ real-time จาก LINE ได้โดยตรง โดยไม่ต้องควบคุม UI ของโปรแกรม LINE Desktop
+
+เวอร์ชันเอกสาร: 2.0.0 (14 tools)
 
 ---
 
@@ -14,9 +16,9 @@ mcp-server.js  (Node.js + @modelcontextprotocol/sdk)
     │
     ▼
 @evex/linejs   (จำลอง LINE Client, Apache Thrift RPC, E2EE)
-    │  HTTPS
+    │  HTTPS / Long-polling
     ▼
-LINE Server (legy.line-apps.com)
+LINE Server (legy.line-apps.com, obs.line-apps.com)
 ```
 
 | องค์ประกอบ | หน้าที่ |
@@ -25,13 +27,14 @@ LINE Server (legy.line-apps.com)
 | `run.js` | สคริปต์ล็อกอินครั้งแรกผ่าน QR Code และบันทึก Token ลง `storage.json` |
 | `mcp-server.js` | MCP Server เปิด Tools ให้ Claude เรียกใช้ |
 | `storage.json` | เก็บ AuthToken, Certificate และ E2EE Key (ข้อมูลลับ ห้ามแชร์) |
+| `downloads\` | โฟลเดอร์ปลายทางของไฟล์ที่ดาวน์โหลดจาก LINE (สร้างอัตโนมัติ) |
 | `claude_desktop_config.json` | ไฟล์ตั้งค่า MCP ของ Claude Desktop |
 
 ### เปรียบเทียบกับแนวทางอื่น
 
 | แนวทาง | ข้อดี | ข้อเสีย |
 |---|---|---|
-| **LINE SelfBot (linejs)** – แนวทางนี้ | ไม่ต้องเปิด LINE Desktop, รัน Headless ได้, เร็ว, อ่านรูปภาพได้ | เสี่ยงผิดเงื่อนไขการใช้งาน LINE, อาจโดนระงับบัญชี |
+| **LINE SelfBot (linejs)** – แนวทางนี้ | ไม่ต้องเปิด LINE Desktop, รัน Headless ได้, เร็ว, รับ-ส่งรูป/ไฟล์ได้, รับ push แบบ real-time | เสี่ยงผิดเงื่อนไขการใช้งาน LINE, อาจโดนระงับบัญชี |
 | GUI Automation (line-desktop-mcp) | ใช้บัญชีที่ล็อกอินใน LINE Desktop อยู่แล้ว | แย่งเมาส์/คีย์บอร์ด, เปราะบางต่อการเปลี่ยน UI, ช้า |
 | Official Messaging API | ปลอดภัย เสถียรที่สุด | ใช้ได้เฉพาะบัญชี Bot (OA) ไม่ใช่บัญชีส่วนตัว |
 
@@ -145,7 +148,7 @@ node run.js
 
 ---
 
-## 5. ไฟล์ `mcp-server.js` – MCP Server
+## 5. ไฟล์ `mcp-server.js` – MCP Server (v2.0.0)
 
 ```javascript
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -186,14 +189,138 @@ async function getClient() {
   return client;
 }
 
+// ดึงชื่อจาก MID หลายคน (แบ่งทีละ 100)
+async function resolveNames(c, mids) {
+  const names = {};
+  for (let i = 0; i < mids.length; i += 100) {
+    const chunk = mids.slice(i, i + 100);
+    try {
+      const users = await c.base.talk.getContacts({ mids: chunk });
+      users.forEach(u => {
+        names[u.mid] = { displayName: u.displayName || "", statusMessage: u.statusMessage || "" };
+      });
+    } catch (e) {
+      console.error("[resolveNames] chunk failed", e);
+    }
+  }
+  return names;
+}
+
+// MIME type ตามนามสกุลไฟล์
+const MIME_MAP = {
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+  ".mp4": "video/mp4", ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav",
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".txt": "text/plain", ".csv": "text/csv", ".json": "application/json",
+  ".zip": "application/zip", ".rar": "application/vnd.rar", ".7z": "application/x-7z-compressed",
+};
+
+function mimeOf(filename) {
+  return MIME_MAP[path.extname(filename).toLowerCase()] || "application/octet-stream";
+}
+
+// โหลดข้อมูลจาก filePath หรือ url คืน { buffer, mime, filename }
+async function loadMedia(args) {
+  if (args.filePath) {
+    if (!fs.existsSync(args.filePath)) {
+      throw new Error(`ไม่พบไฟล์: ${args.filePath}`);
+    }
+    const buffer = fs.readFileSync(args.filePath);
+    const filename = args.fileName || path.basename(args.filePath);
+    return { buffer, mime: mimeOf(filename), filename };
+  }
+  const url = args.imageUrl || args.fileUrl;
+  if (url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`ดาวน์โหลดไม่สำเร็จ: HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    let filename = args.fileName || path.basename(new URL(url).pathname) || "file";
+    let mime = res.headers.get("content-type")?.split(";")[0] || mimeOf(filename);
+    if (!path.extname(filename)) {
+      const ext = Object.keys(MIME_MAP).find(k => MIME_MAP[k] === mime) || "";
+      filename += ext;
+    }
+    return { buffer, mime, filename };
+  }
+  throw new Error("ต้องระบุ filePath หรือ URL");
+}
+
+// ---- Real-time inbox: รับ push event จาก LINE เก็บไว้ใน buffer ----
+const inbox = [];
+let listening = false;
+
+async function startListening() {
+  if (listening) return;
+  const c = await getClient();
+
+  c.on("message", (m) => {
+    try {
+      const isGroup = m.to?.type === "GROUP" || m.to?.type === "ROOM";
+      const chatMid = isGroup ? m.to.id : (m.isMyMessage ? m.to.id : m.from.id);
+      inbox.push({
+        id: m.raw?.id,
+        chatMid: chatMid,
+        chatType: isGroup ? "GROUP" : "INDIVIDUAL",
+        fromMid: m.from?.id,
+        text: m.text || `[${m.raw?.contentType}]`,
+        contentType: m.raw?.contentType,
+        receivedAt: Date.now(),
+        isMine: m.isMyMessage,
+      });
+      if (inbox.length > 500) inbox.shift();
+    } catch (e) {
+      console.error("[inbox] push failed", e);
+    }
+  });
+
+  c.listen({ talk: true });
+  listening = true;
+  console.error("[LINE-SelfBot] listening started");
+}
+
 const server = new Server(
-  { name: "line-selfbot-mcp", version: "1.5.0" },
+  { name: "line-selfbot-mcp", version: "2.0.0" },
   { capabilities: { tools: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      {
+        name: "get_my_profile",
+        description: "ดูโปรไฟล์บัญชี LINE ของเรา (ชื่อ, MID, ข้อความสถานะ)",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "update_my_profile",
+        description: "เปลี่ยนชื่อที่แสดง (displayName) และ/หรือข้อความสถานะ (statusMessage) ของบัญชี LINE ตัวเอง ต้องยืนยันกับผู้ใช้ก่อนเปลี่ยน",
+        inputSchema: {
+          type: "object",
+          properties: {
+            displayName: { type: "string", description: "ชื่อใหม่ (ไม่เกิน 20 ตัวอักษร) ไม่ระบุ = ไม่เปลี่ยน" },
+            statusMessage: { type: "string", description: "ข้อความสถานะใหม่ (ไม่เกิน 500 ตัวอักษร) ไม่ระบุ = ไม่เปลี่ยน" },
+          },
+        },
+      },
+      {
+        name: "rename_friend",
+        description: "ตั้งชื่อที่แสดงของเพื่อนในเครื่องเรา (เหมือนแก้ชื่อเพื่อนในแอป) ไม่กระทบชื่อจริงของเขา ส่งค่าว่างเพื่อคืนชื่อเดิม",
+        inputSchema: {
+          type: "object",
+          properties: {
+            userMid: { type: "string", description: "MID ของเพื่อน (ขึ้นต้นด้วย u)" },
+            newName: { type: "string", description: "ชื่อใหม่ หรือ \"\" เพื่อยกเลิกการตั้งชื่อ" },
+          },
+          required: ["userMid", "newName"],
+        },
+      },
       {
         name: "list_chats",
         description: "ดึงรายชื่อแชทล่าสุดทั้งหมด (ทั้งแชทส่วนตัว 1-on-1 และแชทกลุ่ม) เรียงตามการสนทนาล่าสุด",
@@ -205,8 +332,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "list_friends",
+        description: "ดึงรายชื่อเพื่อนทั้งหมดในสมุดรายชื่อ LINE พร้อม MID และข้อความสถานะ",
+        inputSchema: {
+          type: "object",
+          properties: {
+            search: { type: "string", description: "กรองชื่อเพื่อนที่มีคำนี้ (ไม่บังคับ)" },
+          },
+        },
+      },
+      {
+        name: "list_group_members",
+        description: "ดึงรายชื่อสมาชิกทั้งหมดในกลุ่ม พร้อม MID, ผู้สร้างกลุ่ม และผู้ที่ถูกเชิญแต่ยังไม่ตอบรับ",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chatMid: { type: "string", description: "MID ของกลุ่ม (ขึ้นต้นด้วย c)" },
+          },
+          required: ["chatMid"],
+        },
+      },
+      {
         name: "get_chat_messages",
-        description: "อ่านประวัติข้อความล่าสุดในแชท หากข้อความเป็นรูปภาพจะแสดง [IMAGE] พร้อม messageId",
+        description: "อ่านประวัติข้อความล่าสุดในแชท หากข้อความเป็นรูปภาพ/ไฟล์จะแสดง [IMAGE]/[FILE] พร้อม messageId",
         inputSchema: {
           type: "object",
           properties: {
@@ -224,6 +372,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             chatMid: { type: "string", description: "MID ของห้องแชท" },
             messageId: { type: "string", description: "ID ของข้อความที่เป็นรูปภาพ" },
+          },
+          required: ["chatMid", "messageId"],
+        },
+      },
+      {
+        name: "download_message_file",
+        description: "ดาวน์โหลดไฟล์แนบ (FILE/IMAGE/VIDEO/AUDIO) จากข้อความ บันทึกลงเครื่อง คืน path ของไฟล์",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chatMid: { type: "string", description: "MID ของห้องแชท" },
+            messageId: { type: "string", description: "ID ของข้อความที่มีไฟล์แนบ" },
+            saveDir: { type: "string", description: "โฟลเดอร์ปลายทาง (ค่าเริ่มต้น: โฟลเดอร์ downloads ข้างไฟล์ server)" },
           },
           required: ["chatMid", "messageId"],
         },
@@ -253,6 +414,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["chatMid"],
         },
       },
+      {
+        name: "send_file",
+        description: "ส่งไฟล์ (PDF, Word, Excel, ZIP, วิดีโอ, เสียง ฯลฯ) ไปยังห้องแชทหรือบุคคล ระบุ filePath หรือ fileUrl อย่างใดอย่างหนึ่ง",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chatMid: { type: "string", description: "MID ของห้องแชทหรือผู้รับ" },
+            filePath: { type: "string", description: "path เต็มของไฟล์ในเครื่อง เช่น C:\\temp\\report.pdf" },
+            fileUrl: { type: "string", description: "URL ของไฟล์ (http/https)" },
+            fileName: { type: "string", description: "ชื่อไฟล์ที่จะแสดงใน LINE (ไม่บังคับ)" },
+          },
+          required: ["chatMid"],
+        },
+      },
+      {
+        name: "wait_for_message",
+        description: "รอข้อความใหม่จาก LINE แบบ real-time (สูงสุด 50 วินาทีต่อครั้ง) คืนข้อความที่เข้ามาระหว่างรอ ระบุ chatMid เพื่อรอเฉพาะห้อง เรียกซ้ำได้หากยังไม่มีข้อความ",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chatMid: { type: "string", description: "รอเฉพาะห้องนี้ (ไม่บังคับ)" },
+            timeoutSec: { type: "number", description: "วินาทีที่รอ (ค่าเริ่มต้น 50 สูงสุด 50)", default: 50 },
+          },
+        },
+      },
+      {
+        name: "get_new_messages",
+        description: "ดึงข้อความใหม่ที่เข้ามาตั้งแต่เริ่มฟัง (ไม่รอ คืนทันที) ใช้เช็คว่ามีใครตอบมาบ้างระหว่างที่ไม่ได้ดู",
+        inputSchema: {
+          type: "object",
+          properties: {
+            chatMid: { type: "string", description: "กรองเฉพาะห้องนี้ (ไม่บังคับ)" },
+            clear: { type: "boolean", description: "ล้าง buffer หลังอ่าน (ค่าเริ่มต้น true)", default: true },
+          },
+        },
+      },
     ],
   };
 });
@@ -262,6 +459,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     const c = await getClient();
+
+    if (name === "get_my_profile") {
+      const p = await c.getMyProfile();
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          displayName: p.displayName,
+          mid: p.mid,
+          statusMessage: p.statusMessage || "",
+          userid: p.userid || "",
+        }, null, 2) }],
+      };
+    }
+
+    if (name === "update_my_profile") {
+      if (!args.displayName && args.statusMessage === undefined) {
+        throw new Error("ต้องระบุ displayName หรือ statusMessage อย่างน้อย 1 อย่าง");
+      }
+      const changed = [];
+      if (args.displayName) {
+        if (args.displayName.length > 20) throw new Error("displayName ยาวเกิน 20 ตัวอักษร");
+        await c.updateMyDisplayName(args.displayName);
+        changed.push(`ชื่อ → "${args.displayName}"`);
+      }
+      if (args.statusMessage !== undefined) {
+        await c.updateMyStatusMessage(args.statusMessage);
+        changed.push(`สถานะ → "${args.statusMessage}"`);
+      }
+      const profile = await c.getMyProfile();
+      return {
+        content: [{ type: "text", text: `เปลี่ยนแล้ว: ${changed.join(", ")}\nโปรไฟล์ปัจจุบัน: ${profile.displayName} / ${profile.statusMessage || ""}` }],
+      };
+    }
+
+    if (name === "rename_friend") {
+      if (!String(args.userMid).startsWith("u")) {
+        throw new Error("userMid ต้องขึ้นต้นด้วย u");
+      }
+      await c.base.talk.updateContactSetting({
+        reqSeq: await c.base.getReqseq(),
+        mid: args.userMid,
+        flag: "CONTACT_SETTING_DISPLAY_NAME_OVERRIDE",
+        value: args.newName || "",
+      });
+      return {
+        content: [{ type: "text", text: args.newName
+          ? `ตั้งชื่อเพื่อน ${args.userMid} เป็น "${args.newName}" แล้ว`
+          : `คืนชื่อเดิมของเพื่อน ${args.userMid} แล้ว` }],
+      };
+    }
 
     if (name === "list_chats") {
       const limit = args.limit || 30;
@@ -273,13 +519,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const userMids = boxes.filter(b => b.id.startsWith("u")).map(b => b.id);
       const groupMids = boxes.filter(b => b.id.startsWith("c")).map(b => b.id);
 
-      const userNames = {};
-      if (userMids.length > 0) {
-        try {
-          const users = await c.base.talk.getContacts({ mids: userMids });
-          users.forEach(u => { userNames[u.mid] = u.displayName; });
-        } catch (_) {}
-      }
+      const userNames = await resolveNames(c, userMids);
 
       const groupNames = {};
       if (groupMids.length > 0) {
@@ -291,7 +531,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const result = boxes.map(b => {
         const isUser = b.id.startsWith("u");
-        const name = isUser ? (userNames[b.id] || "แชทส่วนตัว") : (groupNames[b.id] || "กลุ่ม");
+        const name = isUser ? (userNames[b.id]?.displayName || "แชทส่วนตัว") : (groupNames[b.id] || "กลุ่ม");
         return {
           type: isUser ? "INDIVIDUAL (1-on-1)" : "GROUP",
           name: name,
@@ -299,6 +539,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           unreadCount: b.unreadCount || 0,
         };
       });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    if (name === "list_friends") {
+      const idsRes = await c.base.relation.getUserFriendIds({
+        request: { blockStatus: "ALL" },
+      });
+      const mids = idsRes.userFriendMids || [];
+      const names = await resolveNames(c, mids);
+
+      let result = mids.map(mid => ({
+        name: names[mid]?.displayName || "ไม่มีชื่อ",
+        mid: mid,
+        statusMessage: names[mid]?.statusMessage || "",
+      }));
+
+      if (args.search) {
+        const q = String(args.search).toLowerCase();
+        result = result.filter(r => r.name.toLowerCase().includes(q));
+      }
+
+      result.sort((a, b) => a.name.localeCompare(b.name, "th"));
+
+      return {
+        content: [{ type: "text", text: `เพื่อนทั้งหมด ${mids.length} คน แสดง ${result.length} รายการ\n` + JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    if (name === "list_group_members") {
+      if (!String(args.chatMid).startsWith("c")) {
+        throw new Error("chatMid ต้องเป็น MID ของกลุ่ม (ขึ้นต้นด้วย c)");
+      }
+
+      const chat = await c.base.talk.getChat({
+        chatMid: args.chatMid,
+        withMembers: true,
+        withInvitees: true,
+      });
+
+      const groupExtra = chat?.extra?.groupExtra || {};
+      const memberMids = Object.keys(groupExtra.memberMids || {});
+      const inviteeMids = Object.keys(groupExtra.inviteeMids || {});
+      const creatorMid = groupExtra.creator || null;
+      const myMid = c.base.profile?.mid;
+
+      const names = await resolveNames(c, [...memberMids, ...inviteeMids]);
+
+      const toEntry = (mid) => ({
+        name: mid === myMid ? (c.base.profile?.displayName || "ฉัน") + " (ฉัน)" : (names[mid]?.displayName || "ไม่มีชื่อ"),
+        mid: mid,
+        isCreator: mid === creatorMid,
+      });
+
+      const members = memberMids.map(toEntry).sort((a, b) => a.name.localeCompare(b.name, "th"));
+      const invitees = inviteeMids.map(toEntry);
+
+      const result = {
+        groupName: chat?.chatName || "",
+        groupMid: args.chatMid,
+        memberCount: members.length,
+        creatorMid: creatorMid,
+        members: members,
+        pendingInvitees: invitees,
+      };
 
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -316,20 +623,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         rawMessages.map(m => TalkMessage.fromRawTalk(m, c))
       );
 
+      const senderMids = [...new Set(messages.map(m => m.from?.id).filter(Boolean))];
+      const senderNames = await resolveNames(c, senderMids);
+
       const result = messages.map((m) => {
         const time = m.raw?.createdTime ? new Date(Number(m.raw.createdTime)).toLocaleString("th-TH") : null;
+        const ct = m.raw?.contentType;
         let contentText = m.text;
-        if (!contentText && m.raw?.contentType === "IMAGE") {
+        if (!contentText && ct === "IMAGE") {
           contentText = `[รูปภาพ/IMAGE] (messageId: ${m.raw.id})`;
-        } else if (!contentText && m.raw?.contentType !== "NONE") {
-          contentText = `[${m.raw?.contentType}]`;
+        } else if (!contentText && ct === "FILE") {
+          const fname = m.raw?.contentMetadata?.FILE_NAME || "";
+          const fsize = m.raw?.contentMetadata?.FILE_SIZE || "";
+          contentText = `[ไฟล์/FILE] ${fname} ${fsize ? "(" + Math.round(Number(fsize) / 1024) + " KB)" : ""} (messageId: ${m.raw.id})`;
+        } else if (!contentText && ct !== "NONE") {
+          contentText = `[${ct}] (messageId: ${m.raw.id})`;
         }
 
         return {
           id: m.raw?.id,
           fromMid: m.from?.id,
+          fromName: m.isMyMessage ? "ฉัน" : (senderNames[m.from?.id]?.displayName || ""),
           text: contentText || "",
-          contentType: m.raw?.contentType,
+          contentType: ct,
           time: time,
           isMine: m.isMyMessage,
         };
@@ -371,6 +687,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
+    if (name === "download_message_file") {
+      const rawMessages = await c.base.talk.getRecentMessagesV2({
+        messageBoxId: args.chatMid,
+        messagesCount: 50,
+      });
+
+      const targetRaw = rawMessages.find(m => String(m.id) === String(args.messageId));
+      if (!targetRaw) {
+        throw new Error(`ไม่พบข้อความ ID: ${args.messageId} ในประวัติแชทล่าสุด`);
+      }
+
+      const targetMessage = await TalkMessage.fromRawTalk(targetRaw, c);
+      const file = await targetMessage.getData();
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      const saveDir = args.saveDir || path.join(__dirname, "downloads");
+      if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+
+      let filename = file.name || targetRaw.contentMetadata?.FILE_NAME || `${args.messageId}.bin`;
+      filename = filename.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+      const savePath = path.join(saveDir, filename);
+      fs.writeFileSync(savePath, buffer);
+
+      return {
+        content: [{ type: "text", text: `บันทึกไฟล์แล้ว: ${savePath} (${Math.round(buffer.length / 1024)} KB)` }],
+      };
+    }
+
     if (name === "send_message") {
       await c.base.talk.sendMessage({
         to: args.chatMid,
@@ -382,29 +726,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "send_image") {
-      let buffer, mime, filename;
-
-      if (args.filePath) {
-        if (!fs.existsSync(args.filePath)) {
-          throw new Error(`ไม่พบไฟล์: ${args.filePath}`);
-        }
-        buffer = fs.readFileSync(args.filePath);
-        filename = path.basename(args.filePath);
-        const ext = path.extname(filename).toLowerCase();
-        mime = ext === ".png" ? "image/png"
-             : ext === ".gif" ? "image/gif"
-             : ext === ".webp" ? "image/webp"
-             : "image/jpeg";
-      } else if (args.imageUrl) {
-        const res = await fetch(args.imageUrl);
-        if (!res.ok) throw new Error(`ดาวน์โหลดรูปไม่สำเร็จ: HTTP ${res.status}`);
-        buffer = Buffer.from(await res.arrayBuffer());
-        mime = res.headers.get("content-type") || "image/jpeg";
-        filename = "image." + (mime.split("/")[1] || "jpg");
-      } else {
-        throw new Error("ต้องระบุ filePath หรือ imageUrl");
+      const { buffer, mime, filename } = await loadMedia(args);
+      if (!mime.startsWith("image/")) {
+        throw new Error(`ไฟล์นี้ไม่ใช่รูปภาพ (${mime}) ใช้ send_file แทน`);
       }
-
       const blob = new Blob([buffer], { type: mime });
       await c.base.obs.uploadMediaByE2EE({
         data: blob,
@@ -412,10 +737,75 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         to: args.chatMid,
         filename: filename,
       });
-
       return {
         content: [{ type: "text", text: `ส่งรูป ${filename} (${Math.round(buffer.length / 1024)} KB) ไปยัง ${args.chatMid} สำเร็จ` }],
       };
+    }
+
+    if (name === "send_file") {
+      const { buffer, mime, filename } = await loadMedia(args);
+      const oType = mime.startsWith("video/") ? "video"
+                  : mime.startsWith("audio/") ? "audio"
+                  : "file";
+      const blob = new Blob([buffer], { type: mime });
+      await c.base.obs.uploadMediaByE2EE({
+        data: blob,
+        oType: oType,
+        to: args.chatMid,
+        filename: filename,
+      });
+      return {
+        content: [{ type: "text", text: `ส่งไฟล์ ${filename} (${Math.round(buffer.length / 1024)} KB, ${oType}) ไปยัง ${args.chatMid} สำเร็จ` }],
+      };
+    }
+
+    if (name === "wait_for_message") {
+      await startListening();
+      const timeout = Math.min(args.timeoutSec || 50, 50) * 1000;
+      const since = Date.now();
+      const deadline = since + timeout;
+      const match = (m) => !m.isMine && m.receivedAt >= since && (!args.chatMid || m.chatMid === args.chatMid);
+
+      while (Date.now() < deadline) {
+        const found = inbox.filter(match);
+        if (found.length) {
+          const senderNames = await resolveNames(c, [...new Set(found.map(m => m.fromMid))]);
+          const result = found.map(m => ({
+            ...m,
+            fromName: senderNames[m.fromMid]?.displayName || "",
+            receivedAt: new Date(m.receivedAt).toLocaleString("th-TH"),
+          }));
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      return { content: [{ type: "text", text: `ไม่มีข้อความใหม่ใน ${timeout / 1000} วินาที (เรียกซ้ำเพื่อรอต่อได้)` }] };
+    }
+
+    if (name === "get_new_messages") {
+      await startListening();
+      const clear = args.clear !== false;
+      let found = inbox.filter(m => !m.isMine && (!args.chatMid || m.chatMid === args.chatMid));
+
+      if (found.length === 0) {
+        return { content: [{ type: "text", text: "ยังไม่มีข้อความใหม่ตั้งแต่เริ่มฟัง" }] };
+      }
+
+      const senderNames = await resolveNames(c, [...new Set(found.map(m => m.fromMid))]);
+      const result = found.map(m => ({
+        ...m,
+        fromName: senderNames[m.fromMid]?.displayName || "",
+        receivedAt: new Date(m.receivedAt).toLocaleString("th-TH"),
+      }));
+
+      if (clear) {
+        for (const m of found) {
+          const idx = inbox.indexOf(m);
+          if (idx >= 0) inbox.splice(idx, 1);
+        }
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
     throw new Error(`ไม่พบ Tool: ${name}`);
@@ -442,8 +832,13 @@ await server.connect(transport);
 | ใช้ `getMessageBoxes` แทน `fetchJoinedChats` | `fetchJoinedChats` คืนเฉพาะกลุ่ม (MID ขึ้นต้น `c`) ส่วน `getMessageBoxes` คืนทั้งกลุ่มและแชทส่วนตัว (MID ขึ้นต้น `u`) |
 | ใช้ `getRecentMessagesV2` | อ่านข้อความได้ทั้งแชทกลุ่มและแชทส่วนตัวในคำสั่งเดียว |
 | `import { TalkMessage } from "@evex/linejs"` | ไลบรารีไม่อนุญาต import path ย่อย (`ERR_PACKAGE_PATH_NOT_EXPORTED`) |
-| ส่งรูปเป็น `{ type: "image", data, mimeType }` | รูปแบบมาตรฐาน MCP ทำให้ Claude มองเห็นและวิเคราะห์ภาพได้ |
-| ส่งรูปออกด้วย `obs.uploadMediaByE2EE` | อัปโหลดแบบเข้ารหัส E2EE และส่งเข้าแชทในคำสั่งเดียว รองรับเฉพาะ MID `u...` และ `c...` |
+| ใช้ `relation.getUserFriendIds` + `talk.getContacts` | คลาส `User` ของ linejs ไม่มี property `name` การดึงชื่อต้องผ่าน `getContacts` ซึ่งคืน `displayName` |
+| ใช้ `talk.getChat({ withMembers: true })` | สมาชิกกลุ่มอยู่ใน `extra.groupExtra.memberMids` (map ของ MID → timestamp) |
+| `resolveNames()` แบ่งทีละ 100 MID | ป้องกัน request ใหญ่เกินไปเมื่อมีเพื่อน/สมาชิกจำนวนมาก |
+| รับรูปเป็น `{ type: "image", data, mimeType }` | รูปแบบมาตรฐาน MCP ทำให้ Claude มองเห็นและวิเคราะห์ภาพได้ |
+| ส่งรูป/ไฟล์ด้วย `obs.uploadMediaByE2EE` | อัปโหลดแบบเข้ารหัส E2EE และส่งเข้าแชทในคำสั่งเดียว เลือก `oType` (image/gif/video/audio/file) ตาม MIME รองรับเฉพาะ MID `u...` และ `c...` |
+| `client.listen({ talk: true })` + buffer `inbox` | รับ push event จาก LINE แบบ real-time เก็บไว้ให้ Claude ดึงผ่าน `wait_for_message` / `get_new_messages` |
+| `wait_for_message` จำกัด 50 วินาที | MCP tool call มี timeout ประมาณ 60 วินาที ต้องคืนผลก่อน |
 | ดักจับ Error แล้วคืน `isError: true` | Claude เห็นสาเหตุที่แท้จริงแทนข้อความ "connector returned an error" |
 
 ---
@@ -477,8 +872,8 @@ await server.connect(transport);
   "manifest_version": "0.2",
   "name": "line-selfbot-mcp",
   "display_name": "LINE SelfBot",
-  "version": "1.5.0",
-  "description": "อ่านและส่งข้อความ LINE จากบัญชีส่วนตัวผ่าน Claude",
+  "version": "2.0.0",
+  "description": "อ่าน ส่ง และรับข้อความ รูปภาพ ไฟล์จากบัญชี LINE ส่วนตัวผ่าน Claude",
   "author": {
     "name": "Your Name"
   },
@@ -491,11 +886,20 @@ await server.connect(transport);
     }
   },
   "tools": [
+    { "name": "get_my_profile", "description": "ดูโปรไฟล์ตัวเอง" },
+    { "name": "update_my_profile", "description": "เปลี่ยนชื่อ/สถานะตัวเอง" },
+    { "name": "rename_friend", "description": "ตั้งชื่อเพื่อน" },
     { "name": "list_chats", "description": "ดึงรายชื่อแชทล่าสุด" },
+    { "name": "list_friends", "description": "ดึงรายชื่อเพื่อน" },
+    { "name": "list_group_members", "description": "ดึงสมาชิกในกลุ่ม" },
     { "name": "get_chat_messages", "description": "อ่านประวัติข้อความ" },
-    { "name": "get_message_image", "description": "ดึงรูปภาพจากข้อความ" },
+    { "name": "get_message_image", "description": "ดูรูปภาพจากข้อความ" },
+    { "name": "download_message_file", "description": "ดาวน์โหลดไฟล์แนบ" },
     { "name": "send_message", "description": "ส่งข้อความ" },
-    { "name": "send_image", "description": "ส่งรูปภาพจากไฟล์หรือ URL" }
+    { "name": "send_image", "description": "ส่งรูปภาพ" },
+    { "name": "send_file", "description": "ส่งไฟล์" },
+    { "name": "wait_for_message", "description": "รอข้อความใหม่แบบ real-time" },
+    { "name": "get_new_messages", "description": "ดึงข้อความใหม่ที่เข้ามา" }
   ],
   "compatibility": {
     "platforms": ["win32", "darwin"],
@@ -512,33 +916,78 @@ npx @anthropic-ai/mcpb pack
 
 จะได้ไฟล์ `line-selfbot-mcp.mcpb` ดับเบิลคลิกเพื่อติดตั้งใน Claude Desktop (Settings → Extensions)
 
-> **หมายเหตุ:** ไฟล์ `.mcpb` จะรวม `node_modules` เข้าไปด้วย ควรสร้าง `.mcpbignore` เพื่อยกเว้น `storage.json`, `run.js`, `test-*.js` ไม่ให้ติดไปในแพ็กเกจ และผู้ติดตั้งต้องรัน `run.js` เพื่อล็อกอินในโฟลเดอร์ที่ Extension ถูกติดตั้งเองอีกครั้ง
+> **หมายเหตุ:** ไฟล์ `.mcpb` จะรวม `node_modules` เข้าไปด้วย ควรสร้าง `.mcpbignore` เพื่อยกเว้น `storage.json`, `downloads/`, `run.js`, `test-*.js` ไม่ให้ติดไปในแพ็กเกจ และผู้ติดตั้งต้องรัน `run.js` เพื่อล็อกอินในโฟลเดอร์ที่ Extension ถูกติดตั้งเองอีกครั้ง
 
 ---
 
-## 7. Tools ที่เปิดให้ Claude ใช้
+## 7. Tools ที่เปิดให้ Claude ใช้ (14 tools)
+
+### โปรไฟล์
 
 | Tool | Input | ผลลัพธ์ |
 |---|---|---|
-| `list_chats` | `limit` (ไม่บังคับ, ค่าเริ่มต้น 30) | รายชื่อแชทส่วนตัวและกลุ่ม พร้อม MID, ประเภท, จำนวนยังไม่อ่าน |
-| `get_chat_messages` | `chatMid`, `limit` (ค่าเริ่มต้น 20) | ข้อความล่าสุด พร้อม ID, ผู้ส่ง, เวลา, ประเภทเนื้อหา |
+| `get_my_profile` | – | ชื่อ, MID, ข้อความสถานะ, LINE ID |
+| `update_my_profile` | `displayName` (≤20 ตัวอักษร), `statusMessage` (≤500) อย่างน้อย 1 อย่าง | ยืนยันการเปลี่ยน + โปรไฟล์ปัจจุบัน |
+| `rename_friend` | `userMid`, `newName` (`""` = คืนชื่อเดิม) | ยืนยันการตั้งชื่อ |
+
+### รายชื่อ
+
+| Tool | Input | ผลลัพธ์ |
+|---|---|---|
+| `list_chats` | `limit` (ค่าเริ่มต้น 30) | แชทส่วนตัวและกลุ่ม พร้อม MID, ประเภท, จำนวนยังไม่อ่าน |
+| `list_friends` | `search` (ไม่บังคับ) | เพื่อนทั้งหมด พร้อม MID และข้อความสถานะ เรียงตามชื่อ |
+| `list_group_members` | `chatMid` (`c...`) | ชื่อกลุ่ม, สมาชิก, ผู้สร้าง (`isCreator`), ผู้ถูกเชิญที่ยังไม่ตอบรับ |
+
+### อ่าน
+
+| Tool | Input | ผลลัพธ์ |
+|---|---|---|
+| `get_chat_messages` | `chatMid`, `limit` (ค่าเริ่มต้น 20) | ข้อความล่าสุด พร้อม ID, ชื่อผู้ส่ง, เวลา, ประเภทเนื้อหา (`[IMAGE]`/`[FILE]` พร้อม messageId) |
 | `get_message_image` | `chatMid`, `messageId` | รูปภาพ Base64 ที่ Claude มองเห็นได้ |
+| `download_message_file` | `chatMid`, `messageId`, `saveDir` (ไม่บังคับ) | path ของไฟล์ที่บันทึก (ค่าเริ่มต้น `downloads\`) |
+
+### ส่ง
+
+| Tool | Input | ผลลัพธ์ |
+|---|---|---|
 | `send_message` | `chatMid`, `message` | ยืนยันการส่ง |
 | `send_image` | `chatMid`, `filePath` หรือ `imageUrl` | ยืนยันการส่ง พร้อมชื่อไฟล์และขนาด |
+| `send_file` | `chatMid`, `filePath` หรือ `fileUrl`, `fileName` (ไม่บังคับ) | ยืนยันการส่ง พร้อมประเภท (file/video/audio) |
+
+### Real-time
+
+| Tool | Input | ผลลัพธ์ |
+|---|---|---|
+| `wait_for_message` | `chatMid` (ไม่บังคับ), `timeoutSec` (≤50) | ข้อความใหม่ที่เข้ามาระหว่างรอ หรือแจ้งว่าไม่มี |
+| `get_new_messages` | `chatMid` (ไม่บังคับ), `clear` (ค่าเริ่มต้น true) | ข้อความใหม่ใน buffer ตั้งแต่เริ่มฟัง คืนทันที |
 
 ### ตัวอย่างคำสั่งใน Claude
 
 - "ดูรายชื่อแชท LINE ล่าสุด"
+- "ดูรายชื่อเพื่อน LINE ที่ชื่อมีคำว่า ทัดดาว"
+- "ใครอยู่ในกลุ่ม BPC Dynamics Team บ้าง"
 - "อ่าน 10 ข้อความล่าสุดในห้อง BPC Dynamics Team"
 - "ในห้อง ... ถ้ามีรูปภาพ ให้ดึงมาดูแล้วอธิบายว่าในรูปคืออะไร"
+- "ดาวน์โหลดไฟล์ PDF ล่าสุดในห้อง ... แล้วสรุปเนื้อหา"
 - "สรุปบทสนทนาวันนี้ในกลุ่ม ... แล้วส่งสรุปกลับเข้าห้องเดิม"
 - "ส่งรูป `C:\Users\umsit\Pictures\report.png` ไปห้อง BPC Dynamics Team"
+- "ส่งไฟล์ `C:\Users\umsit\Documents\report.pdf` ไปหาทัดดาว"
+- "ส่ง 'ประชุมกี่โมง' หาทัดดาว แล้วรอคำตอบ สรุปให้"
+- "เปลี่ยนชื่อ LINE ฉันเป็น Sittha (BPC)"
 
-### ข้อจำกัดของ `send_image`
+### ข้อจำกัดของการส่งรูป/ไฟล์
 
 - รองรับเฉพาะแชทส่วนตัว (`u...`) และกลุ่ม (`c...`) ไม่รองรับ OpenChat (`m...`/`t...`)
 - รูปที่ผู้ใช้แนบในหน้าต่าง Claude ไม่ถูกบันทึกเป็นไฟล์อัตโนมัติ ต้องมีไฟล์ในเครื่องหรือ URL ที่เข้าถึงได้
-- ส่งไฟล์เอกสาร (PDF ฯลฯ) ทำได้ด้วยโค้ดชุดเดียวกันโดยเปลี่ยน `oType` เป็น `"file"`
+- LINE จำกัดไฟล์ทั่วไปประมาณ 1 GB วิดีโอประมาณ 200 MB ไฟล์ใหญ่อาจ timeout (60 วินาที) ก่อนอัปโหลดเสร็จ
+
+### ข้อจำกัดของ Real-time
+
+- Claude Desktop เป็น request/response Claude จะไม่เริ่มสนทนาเองเมื่อมีข้อความเข้า ต้องให้ผู้ใช้สั่งก่อนเสมอ
+- `wait_for_message` รอได้ครั้งละไม่เกิน 50 วินาที Claude ต้องเรียกซ้ำหากต้องการรอนานกว่านั้น และอาจหยุดวนเองหลังหลายรอบ
+- `listen()` เริ่มทำงานเมื่อเรียก `wait_for_message` หรือ `get_new_messages` ครั้งแรก และฟังต่อเนื่องจนกว่า Claude Desktop ปิด ใช้ long-polling 1 session ตลอดเวลา
+- buffer `inbox` เก็บสูงสุด 500 ข้อความ ข้อความเก่าถูกทิ้ง
+- หากต้องการ auto-reply ตลอด 24 ชม. โดยไม่ต้องมีคนสั่ง ให้เขียนบอทแยก (`client.on("message")` + เรียก LLM API โดยตรง) รันด้วย PM2 แทนการใช้ผ่าน Claude Desktop
 
 ### การเพิ่ม Tool ในอนาคต
 
@@ -546,12 +995,10 @@ npx @anthropic-ai/mcpb pack
 |---|---|
 | `reply_message` | `TalkMessage.reply(text)` |
 | `send_reaction` | `client.base.talk.react({ id: BigInt(messageId), reaction: "NICE" })` |
-| `list_friends` | `client.fetchUsers()` |
-| `get_my_profile` | `client.getMyProfile()` |
-| `update_status_message` | `client.updateMyStatusMessage(text)` |
 | `unsend_message` | `TalkMessage.unsend()` |
+| `update_profile_image` | `client.uploadMyProfileImage(blob)` |
+| `invite_to_group` / `kick_from_group` | `Chat.invite(mids)` / `Chat.kick(mid)` |
 | `list_openchats` | `client.fetchJoinedSquares()` |
-| `send_file` | `client.base.obs.uploadMediaByE2EE({ oType: "file", ... })` |
 
 ---
 
@@ -575,6 +1022,10 @@ npx @anthropic-ai/mcpb pack
 | `chat.getMessages is not a function` | ชื่อเมธอดผิด | ใช้ `chat.fetchMessages(limit)` หรือ `talk.getRecentMessagesV2` |
 | `ERR_PACKAGE_PATH_NOT_EXPORTED` | import path ย่อยของ linejs | import `TalkMessage` จาก `@evex/linejs` |
 | `list_chats` แสดงเฉพาะกลุ่ม | `fetchJoinedChats` คืนเฉพาะ MID `c...` | ใช้ `getMessageBoxes` |
+| `list_friends` ชื่อว่างทั้งหมด | ใช้ `User.name` ซึ่งไม่มีอยู่ | ใช้ `talk.getContacts` อ่าน `displayName` |
+| สมาชิกกลุ่มบางคนแสดง "ไม่มีชื่อ" | ไม่ได้เป็นเพื่อนกัน `getContacts` คืนชื่อว่าง | ปกติ ใช้ MID อ้างอิงแทน |
+| `send_image` ล้มเหลวเมื่อส่ง PDF | `send_image` รับเฉพาะ MIME `image/*` | ใช้ `send_file` |
+| `wait_for_message` คืน "ไม่มีข้อความใหม่" ทั้งที่มีคนตอบ | ข้อความเป็นของตัวเอง (`isMine`) หรือ chatMid ไม่ตรง | ตรวจ `chatMid` ที่ส่ง หรือเรียก `get_new_messages` โดยไม่ระบุ chatMid |
 | "The connector returned an error" โดยไม่มีรายละเอียด | Error ถูก throw ออกจาก handler | ครอบ try-catch และคืน `isError: true` พร้อมข้อความ |
 
 ---
@@ -584,7 +1035,8 @@ npx @anthropic-ai/mcpb pack
 1. **`storage.json` คือกุญแจเข้าบัญชี LINE** ประกอบด้วย AuthToken, RefreshToken, Certificate และ E2EE Private Key ห้ามแชร์ ห้าม commit ลง Git ห้ามวางในโฟลเดอร์ที่ซิงค์ขึ้นคลาวด์
 2. **SelfBot ขัดต่อเงื่อนไขการใช้งานของ LINE** บัญชีอาจถูกระงับหากส่งข้อความถี่ผิดปกติหรือล็อกอินหลายครั้งติดกัน ควรใช้บัญชีสำรองทดสอบก่อน
 3. **ความเสถียรขึ้นกับผู้พัฒนา linejs** เมื่อ LINE เปลี่ยนโปรโตคอล ไลบรารีอาจหยุดทำงานจนกว่าจะมีอัปเดต ตรวจสอบเวอร์ชันใหม่ด้วย `npx jsr add @evex/linejs` เป็นระยะ
-4. **ควบคุมสิทธิ์การส่งข้อความ** Claude สามารถส่งข้อความในนามบัญชีผู้ใช้ได้ทันที หากต้องการให้ยืนยันก่อนส่ง ควรปรับ description ของ `send_message` ให้ระบุว่า "ต้องขอยืนยันจากผู้ใช้ก่อนทุกครั้ง"
+4. **ควบคุมสิทธิ์การเปลี่ยนแปลง** Claude สามารถส่งข้อความ ส่งไฟล์ และเปลี่ยนชื่อโปรไฟล์ในนามบัญชีผู้ใช้ได้ทันที description ของ `update_my_profile` ระบุให้ยืนยันก่อน หากต้องการให้ยืนยันก่อนส่งข้อความด้วย ให้ปรับ description ของ `send_message` / `send_image` / `send_file` ว่า "ต้องขอยืนยันจากผู้ใช้ก่อนทุกครั้ง"
+5. **ไฟล์ที่ดาวน์โหลด** จาก `download_message_file` ถูกบันทึกในเครื่องโดยไม่สแกนไวรัส ควรตรวจสอบก่อนเปิด
 
 ---
 
@@ -595,10 +1047,27 @@ C:\Users\umsit\LINE SelfBot\
 ├── package.json          ("type": "module")
 ├── node_modules\
 ├── run.js                ล็อกอินครั้งแรก / ต่ออายุ Token
-├── mcp-server.js         MCP Server สำหรับ Claude
+├── mcp-server.js         MCP Server v2.0.0 (14 tools)
 ├── storage.json          ข้อมูลลับ (สร้างอัตโนมัติหลังล็อกอิน)
+├── downloads\            ไฟล์ที่ดาวน์โหลดจาก LINE (สร้างอัตโนมัติ)
 └── manifest.json         (ไม่บังคับ) สำหรับแพ็กเป็น .mcpb
 ```
+
+---
+
+## 12. ประวัติเวอร์ชัน
+
+| เวอร์ชัน | การเปลี่ยนแปลง |
+|---|---|
+| 1.0–1.2 | `list_chats`, `send_message`, `get_chat_messages` (เฉพาะกลุ่ม) |
+| 1.3 | รองรับแชทส่วนตัว (`getMessageBoxes`, `getRecentMessagesV2`) |
+| 1.4 | `get_message_image` – Claude มองเห็นรูปในแชท |
+| 1.5 | `send_image` |
+| 1.6 | `list_friends` |
+| 1.7 | `list_group_members`, `fromName` ใน `get_chat_messages`, `resolveNames()` |
+| 1.8 | `wait_for_message`, `get_new_messages` – real-time inbox |
+| 1.9 | `send_file`, `download_message_file`, `loadMedia()`, `MIME_MAP` |
+| 2.0 | `get_my_profile`, `update_my_profile`, `rename_friend` |
 
 ---
 

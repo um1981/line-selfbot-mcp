@@ -1,4 +1,5 @@
 storage.json
+downloads/
 run.js
 test-*.js
 bot.js

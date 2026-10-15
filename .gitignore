@@ -8,6 +8,9 @@ storage.json
 .env
 .env.*
 
+# Local Downloads
+downloads/
+
 # Claude Desktop Extensions & Builds
 *.mcpb
 dist/

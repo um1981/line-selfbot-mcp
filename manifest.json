@@ -2,8 +2,8 @@
   "manifest_version": "0.2",
   "name": "line-selfbot-mcp",
   "display_name": "LINE SelfBot",
-  "version": "1.5.0",
-  "description": "อ่านและส่งข้อความ LINE จากบัญชีส่วนตัวผ่าน Claude Desktop รองรับดูรูปภาพและส่งรูปภาพ E2EE",
+  "version": "2.0.0",
+  "description": "อ่าน ส่ง และรับข้อความ รูปภาพ ไฟล์จากบัญชี LINE ส่วนตัวผ่าน Claude Desktop (14 Tools, Real-time push, E2EE)",
   "author": {
     "name": "um1981"
   },
@@ -16,11 +16,20 @@
     }
   },
   "tools": [
-    { "name": "list_chats", "description": "ดึงรายชื่อแชทล่าสุดทั้งหมด (1-on-1 และกลุ่ม)" },
-    { "name": "get_chat_messages", "description": "อ่านประวัติข้อความล่าสุดในแชท" },
-    { "name": "get_message_image", "description": "ดึงรูปภาพจากข้อความเพื่อให้ AI มองเห็น" },
-    { "name": "send_message", "description": "ส่งข้อความไปยังห้องแชทหรือบุคคล" },
-    { "name": "send_image", "description": "ส่งรูปภาพไปยังห้องแชทหรือบุคคลจากไฟล์หรือ URL" }
+    { "name": "get_my_profile", "description": "ดูโปรไฟล์ตัวเอง" },
+    { "name": "update_my_profile", "description": "เปลี่ยนชื่อ/สถานะตัวเอง" },
+    { "name": "rename_friend", "description": "ตั้งชื่อเพื่อนในเครื่องเรา" },
+    { "name": "list_chats", "description": "ดึงรายชื่อแชทล่าสุด" },
+    { "name": "list_friends", "description": "ดึงรายชื่อเพื่อนทั้งหมด" },
+    { "name": "list_group_members", "description": "ดึงสมาชิกในกลุ่ม" },
+    { "name": "get_chat_messages", "description": "อ่านประวัติข้อความ" },
+    { "name": "get_message_image", "description": "ดูรูปภาพจากข้อความ" },
+    { "name": "download_message_file", "description": "ดาวน์โหลดไฟล์แนบ" },
+    { "name": "send_message", "description": "ส่งข้อความ" },
+    { "name": "send_image", "description": "ส่งรูปภาพ" },
+    { "name": "send_file", "description": "ส่งไฟล์แนบ/วิดีโอ/เสียง" },
+    { "name": "wait_for_message", "description": "รอข้อความใหม่แบบ real-time" },
+    { "name": "get_new_messages", "description": "ดึงข้อความใหม่ที่เข้ามาใน buffer" }
   ],
   "compatibility": {
     "platforms": ["win32", "darwin", "linux"],

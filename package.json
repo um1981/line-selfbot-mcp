@@ -1,7 +1,7 @@
 {
   "name": "line-selfbot-mcp",
-  "version": "1.5.0",
-  "description": "LINE SelfBot MCP Server for Claude Desktop - Read and send personal LINE messages with E2EE image support",
+  "version": "2.0.0",
+  "description": "LINE SelfBot MCP Server for Claude Desktop - Read, send, and receive personal LINE messages, images, and files with real-time push support (14 tools)",
   "type": "module",
   "main": "mcp-server.js",
   "bin": {
@@ -19,7 +19,9 @@
     "model-context-protocol",
     "claude-desktop",
     "selfbot",
-    "ai-agent"
+    "ai-agent",
+    "e2ee",
+    "real-time"
   ],
   "author": "um1981",
   "license": "MIT",
